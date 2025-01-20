@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Warehouse Robotics Simulation</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f0f0f0;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        .header {
+            background-color: #333;
+            color: white;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .controls {
+            display: flex;
+            gap: 10px;
+        }
+        
+        button {
+            padding: 8px 15px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            background-color: #4CAF50;
+            color: white;
+            font-size: 14px;
+        }
+        
+        button:hover {
+            opacity: 0.8;
+        }
+        
+        button.active {
+            background-color: #45a049;
+        }
+        
+        .speed-controls button {
+            background-color: #2196F3;
+        }
+        
+        #pause-btn {
+            background-color: #f44336;
+        }
+        
+        #auto-btn {
+            background-color: #ff9800;
+        }
+        
+        #reset-btn {
+            background-color: #9c27b0;
+        }
+        
+        .simulation {
+            display: flex;
+            gap: 20px;
+        }
+        
+        .warehouse-container {
+            flex: 1;
+            background-color: white;
+            padding: 20px;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        
+        #warehouse {
+            border: 2px solid #ccc;
+        }
+        
+        .status-panel {
+            width: 300px;
+            background-color: white;
+            padding: 20px;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        
+        .robot-status {
+            margin-bottom: 15px;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        
+        .robot-status h3 {
+            margin: 0 0 10px 0;
+            color: #333;
+        }
+        
+        .battery-bar {
+            height: 20px;
+            background-color: #ddd;
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 5px 0;
+        }
+        
+        .battery-level {
+            height: 100%;
+            background-color: #4CAF50;
+            transition: width 0.3s ease;
+        }
+        
+        .legend {
+            margin-top: 20px;
+            padding: 10px;
+            background-color: #f8f8f8;
+            border-radius: 4px;
+        }
+        
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin: 5px 0;
+        }
+        
+        .legend-color {
+            width: 20px;
+            height: 20px;
+            margin-right: 10px;
+            border: 1px solid #ccc;
+        }
+        
+        .error {
+            color: #f44336;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Warehouse Robotics Simulation</h1>
+            <div class="controls">
+                <div class="speed-controls">
+                    <button onclick="setSpeed(0.5)">0.5x</button>
+                    <button onclick="setSpeed(1.0)" class="active">1.0x</button>
+                    <button onclick="setSpeed(2.0)">2.0x</button>
+                    <button onclick="setSpeed(3.0)">3.0x</button>
+                </div>
+                <button id="pause-btn" onclick="togglePause()">Pause</button>
+                <button id="auto-btn" onclick="toggleAuto()">Auto Mode</button>
+                <button id="reset-btn" onclick="reset()">Reset</button>
+            </div>
+        </div>
+        
+        <div class="simulation">
+            <div class="warehouse-container">
+                <canvas id="warehouse"></canvas>
+                <div class="legend">
+                    <h3>Legend</h3>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background-color: #fff"></div>
+                        <span>Empty Space</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background-color: #ccc"></div>
+                        <span>Storage Location</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background-color: #4CAF50"></div>
+                        <span>Charging Station</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background-color: #2196F3"></div>
+                        <span>Robot</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="status-panel">
+                <h2>Robot Status</h2>
+                <div id="robot-status"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Initialize Socket.IO with explicit configuration
+        const socket = io({
+            transports: ['websocket'],
+            upgrade: false,
+            reconnection: true,
+            reconnectionAttempts: 5
+        });
+        
+        const canvas = document.getElementById('warehouse');
+        const ctx = canvas.getContext('2d');
+        let state = null;
+        let cellSize = 50;
+        
+        // Socket.IO connection handlers
+        socket.on('connect', () => {
+            console.log('Connected to server');
+            document.getElementById('connection-status').textContent = 'Connected';
+        });
+        
+        socket.on('disconnect', () => {
+            console.log('Disconnected from server');
+            document.getElementById('connection-status').textContent = 'Disconnected';
+        });
+        
+        socket.on('connect_error', (error) => {
+            console.error('Connection error:', error);
+            document.getElementById('connection-status').textContent = 'Connection Error';
+        });
+        
+        // Set canvas size based on warehouse dimensions
+        function updateCanvasSize() {
+            if (state) {
+                canvas.width = state.warehouse.width * cellSize;
+                canvas.height = state.warehouse.height * cellSize;
+            }
+        }
+        
+        function drawWarehouse() {
+            if (!state) return;
+            
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Draw grid
+            for (let y = 0; y < state.warehouse.height; y++) {
+                for (let x = 0; x < state.warehouse.width; x++) {
+                    const cell = state.warehouse.grid[y][x];
+                    
+                    // Draw cell background
+                    ctx.fillStyle = cell === 1 ? '#ccc' : cell === 2 ? '#4CAF50' : '#fff';
+                    ctx.fillRect(x * cellSize, y * cellSize, cellSize, cellSize);
+                    
+                    // Draw grid lines
+                    ctx.strokeStyle = '#ddd';
+                    ctx.strokeRect(x * cellSize, y * cellSize, cellSize, cellSize);
+                }
+            }
+            
+            // Draw items
+            state.warehouse.items.forEach(([pos, item]) => {
+                const [x, y] = pos;
+                ctx.fillStyle = '#ff9800';
+                ctx.fillRect(x * cellSize + 10, y * cellSize + 10, cellSize - 20, cellSize - 20);
+                
+                // Draw item label
+                ctx.fillStyle = '#000';
+                ctx.font = '12px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText(item, x * cellSize + cellSize/2, y * cellSize + cellSize/2);
+            });
+            
+            // Draw robots
+            state.robots.forEach(robot => {
+                const x = robot.position[0] * cellSize;
+                const y = robot.position[1] * cellSize;
+                
+                // Draw path if selected or moving
+                if (robot.path.length > 0 || robot.id === state.simulation.selected_robot) {
+                    ctx.strokeStyle = '#2196F3';
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.moveTo(x + cellSize/2, y + cellSize/2);
+                    robot.path.forEach(pos => {
+                        ctx.lineTo(pos[0] * cellSize + cellSize/2, pos[1] * cellSize + cellSize/2);
+                    });
+                    ctx.stroke();
+                }
+                
+                // Draw robot body
+                ctx.fillStyle = robot.status === 'ERROR' ? '#f44336' :
+                               robot.status === 'CHARGING' ? '#4CAF50' :
+                               robot.status === 'LOW_BATTERY' ? '#ff9800' :
+                               robot.id === state.simulation.selected_robot ? '#E91E63' :
+                               '#2196F3';
+                               
+                ctx.beginPath();
+                ctx.arc(x + cellSize/2, y + cellSize/2, cellSize/3, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // Draw robot ID
+                ctx.fillStyle = '#fff';
+                ctx.font = 'bold 14px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText(robot.id, x + cellSize/2, y + cellSize/2 + 5);
+                
+                // Draw battery bar
+                const barWidth = cellSize * 0.8;
+                const barHeight = 6;
+                ctx.fillStyle = '#000';
+                ctx.fillRect(x + cellSize/2 - barWidth/2, y + cellSize - 10, barWidth, barHeight);
+                ctx.fillStyle = robot.battery > 20 ? '#4CAF50' : '#f44336';
+                ctx.fillRect(x + cellSize/2 - barWidth/2, y + cellSize - 10, barWidth * (robot.battery/100), barHeight);
+            });
+        }
+        
+        function updateRobotStatus() {
+            if (!state) return;
+            
+            const statusDiv = document.getElementById('robot-status');
+            statusDiv.innerHTML = state.robots.map(robot => `
+                <div class="robot-status">
+                    <h3>Robot ${robot.id}</h3>
+                    <p>Status: <span class="${robot.status === 'ERROR' ? 'error' : ''}">${robot.status}</span></p>
+                    <p>Battery:</p>
+                    <div class="battery-bar">
+                        <div class="battery-level" style="width: ${robot.battery}%; background-color: ${robot.battery > 20 ? '#4CAF50' : '#f44336'}"></div>
+                    </div>
+                    <p>Position: (${robot.position[0].toFixed(1)}, ${robot.position[1].toFixed(1)})</p>
+                    <p>Carrying: ${robot.carrying_item || 'Nothing'}</p>
+                    <p>Errors: ${robot.error_count}</p>
+                    <p>Distance: ${robot.total_distance}m</p>
+                    ${robot.tasks.length > 0 ? `
+                        <p>Current Task: ${robot.tasks[0].type} to (${robot.tasks[0].target})</p>
+                    ` : ''}
+                </div>
+            `).join('');
+        }
+        
+        socket.on('state', newState => {
+            console.log('Received state update');
+            state = newState;
+            updateCanvasSize();
+            drawWarehouse();
+            updateRobotStatus();
+            
+            // Update button states
+            document.getElementById('pause-btn').textContent = state.simulation.paused ? 'Resume' : 'Pause';
+            document.getElementById('pause-btn').classList.toggle('active', state.simulation.paused);
+            
+            document.getElementById('auto-btn').textContent = state.simulation.auto_mode ? 'Stop Auto' : 'Auto Mode';
+            document.getElementById('auto-btn').classList.toggle('active', state.simulation.auto_mode);
+            
+            // Update speed buttons
+            document.querySelectorAll('.speed-controls button').forEach(btn => {
+                const speed = parseFloat(btn.textContent);
+                btn.classList.toggle('active', speed === state.simulation.speed);
+            });
+        });
+        
+        // Event handlers for canvas clicks
+        canvas.addEventListener('click', e => {
+            if (!state || state.simulation.paused) return;
+            
+            const rect = canvas.getBoundingClientRect();
+            const x = Math.floor((e.clientX - rect.left) / cellSize);
+            const y = Math.floor((e.clientY - rect.top) / cellSize);
+            
+            console.log('Canvas clicked:', {x, y});
+            socket.emit('click', { x, y });
+        });
+        
+        // Button event handlers
+        function togglePause() {
+            console.log('Toggle pause');
+            socket.emit('pause');
+        }
+        
+        function toggleAuto() {
+            console.log('Toggle auto mode');
+            socket.emit('auto');
+        }
+        
+        function reset() {
+            console.log('Reset simulation');
+            socket.emit('reset');
+        }
+        
+        function setSpeed(speed) {
+            console.log('Set speed:', speed);
+            socket.emit('speed', { speed });
+        }
+        
+        // Initial setup
+        updateCanvasSize();
+        
+        // Error handling
+        window.onerror = function(msg, url, line) {
+            console.error('JavaScript error:', msg, 'at', url, ':', line);
+            return false;
+        };
+    </script>
+</body>
+</html>
