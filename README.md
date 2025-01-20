@@ -112,7 +112,7 @@ graph TD
 
 ```bash
 # Clone repository
-git clone https://github.com/yourusername/warehouse-robots.git
+git clone  https://github.com/fahad0samara/Robot-Management-System.git
 
 # Install dependencies
 pip install -r requirements.txt
@@ -178,11 +178,7 @@ We welcome contributions!
 
 MIT License - see [LICENSE.md](LICENSE.md)
 
-## 💬 Support
 
-- 📧 Email: support@warehouse-robots.com
-- 💭 Discord: [Join](https://discord.gg/warehouse-robots)
-- 📚 Docs: [Read](https://docs.warehouse-robots.com)
 
 ## 🙏 Acknowledgments
 
